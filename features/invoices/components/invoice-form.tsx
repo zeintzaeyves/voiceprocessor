@@ -1,4 +1,3 @@
-
 "use client";
 
 import Link from "next/link";
@@ -25,7 +24,10 @@ type DraftLineItem = {
 };
 
 const inputClass =
-  "min-h-11 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-gray-500 disabled:cursor-not-allowed disabled:bg-gray-100";
+  "box-border min-h-11 w-full min-w-0 max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:cursor-not-allowed disabled:bg-gray-100";
+
+const dateInputClass =
+  `${inputClass} cursor-pointer appearance-auto`;
 
 function getTodayLocalDate() {
   const today = new Date();
@@ -56,7 +58,7 @@ function Field({
   children: ReactNode;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <label className="mb-2 block text-sm font-medium">{label}</label>
       {children}
     </div>
@@ -300,8 +302,8 @@ export function InvoiceForm({
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-10 text-gray-950 sm:px-8">
-      <div className="mx-auto max-w-4xl">
+    <main className="min-h-screen bg-gray-50 px-4 py-6 text-gray-950 sm:px-8 sm:py-10">
+      <div className="mx-auto w-full max-w-4xl min-w-0">
         <Link
           href="/"
           className="text-sm text-gray-500 transition hover:text-gray-950"
@@ -327,12 +329,10 @@ export function InvoiceForm({
         </header>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-8">
-            <h2 className="mb-6 text-lg font-semibold">
-              Document details
-            </h2>
+          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 sm:p-8">
+            <h2 className="mb-6 text-lg font-semibold">Document details</h2>
 
-            <div className="grid gap-5 sm:grid-cols-2">
+            <div className="grid min-w-0 grid-cols-1 gap-5 sm:grid-cols-2">
               <Field label="Company name">
                 <input
                   required
@@ -398,7 +398,7 @@ export function InvoiceForm({
                   onChange={(event) =>
                     handleIssueDateChange(event.target.value)
                   }
-                  className={inputClass}
+                  className={dateInputClass}
                 />
               </Field>
 
@@ -412,7 +412,7 @@ export function InvoiceForm({
                       setDueDate(event.target.value);
                       setSaved(false);
                     }}
-                    className={inputClass}
+                    className={dateInputClass}
                   />
                 </Field>
               )}
@@ -458,9 +458,9 @@ export function InvoiceForm({
             )}
           </section>
 
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-8">
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <div>
+          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 sm:p-8">
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
                 <h2 className="text-lg font-semibold">Line items</h2>
                 <p className="mt-1 text-sm text-gray-500">
                   Add the products or services being listed on this document.
@@ -470,7 +470,7 @@ export function InvoiceForm({
               <button
                 type="button"
                 onClick={addLineItem}
-                className="shrink-0 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium transition hover:bg-gray-50"
+                className="min-h-11 shrink-0 self-start rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium transition hover:bg-gray-50 sm:self-auto"
               >
                 + Add item
               </button>
@@ -480,9 +480,9 @@ export function InvoiceForm({
               {lineItems.map((item, index) => (
                 <div
                   key={item.id}
-                  className="grid gap-4 rounded-xl border border-gray-100 p-4 sm:grid-cols-12"
+                  className="grid min-w-0 grid-cols-1 gap-4 rounded-xl border border-gray-100 p-3 sm:grid-cols-12 sm:p-4"
                 >
-                  <div className="sm:col-span-5">
+                  <div className="min-w-0 sm:col-span-5">
                     <label
                       className="mb-2 block text-sm font-medium"
                       htmlFor={`description-${item.id}`}
@@ -506,7 +506,7 @@ export function InvoiceForm({
                     />
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div className="min-w-0 sm:col-span-2">
                     <label
                       className="mb-2 block text-sm font-medium"
                       htmlFor={`quantity-${item.id}`}
@@ -532,7 +532,7 @@ export function InvoiceForm({
                     />
                   </div>
 
-                  <div className="sm:col-span-3">
+                  <div className="min-w-0 sm:col-span-3">
                     <label
                       className="mb-2 block text-sm font-medium"
                       htmlFor={`price-${item.id}`}
@@ -558,12 +558,12 @@ export function InvoiceForm({
                     />
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div className="min-w-0 sm:col-span-2">
                     <span className="mb-2 block text-sm font-medium">
                       Line total
                     </span>
 
-                    <div className="flex min-h-11 items-center font-medium">
+                    <div className="flex min-h-11 min-w-0 items-center break-words font-medium">
                       {formatMoney(
                         Math.round(
                           Number(item.quantity) *
@@ -588,23 +588,29 @@ export function InvoiceForm({
             </div>
           </section>
 
-          <section className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-8">
+          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 sm:p-8">
             <h2 className="mb-5 text-lg font-semibold">Summary</h2>
 
-            <div className="ml-auto max-w-sm space-y-3 text-sm">
+            <div className="ml-auto w-full max-w-sm space-y-3 text-sm">
               <div className="flex justify-between gap-4 text-gray-600">
                 <span>Subtotal</span>
-                <span>{formatMoney(totals.subtotalMinor, currency)}</span>
+                <span className="text-right">
+                  {formatMoney(totals.subtotalMinor, currency)}
+                </span>
               </div>
 
               <div className="flex justify-between gap-4 text-gray-600">
                 <span>Tax ({taxRate || 0}%)</span>
-                <span>{formatMoney(totals.taxMinor, currency)}</span>
+                <span className="text-right">
+                  {formatMoney(totals.taxMinor, currency)}
+                </span>
               </div>
 
               <div className="flex justify-between gap-4 border-t border-gray-200 pt-4 text-base font-semibold">
                 <span>{isReceipt ? "Amount paid" : "Total due"}</span>
-                <span>{formatMoney(totals.totalMinor, currency)}</span>
+                <span className="text-right">
+                  {formatMoney(totals.totalMinor, currency)}
+                </span>
               </div>
             </div>
           </section>
