@@ -5,6 +5,8 @@ import { validateInvoice } from "./validation";
 
 const validInvoice: Invoice = {
   id: "inv-1",
+  documentType: "invoice",
+  companyName: "Test Company",
   invoiceNumber: "INV-001",
   clientName: "Acme Inc.",
   issueDate: "2026-10-10",
