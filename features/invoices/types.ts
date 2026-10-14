@@ -1,5 +1,6 @@
-
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
+
+export type DocumentType = "invoice" | "receipt";
 
 export type InvoiceLineItem = {
   id: string;
@@ -10,6 +11,8 @@ export type InvoiceLineItem = {
 
 export type Invoice = {
   id: string;
+  documentType: DocumentType;
+  companyName: string;
   invoiceNumber: string;
   clientName: string;
   issueDate: string;
