@@ -1,40 +1,35 @@
-
 "use client";
 
-import { useSyncExternalStore } from "react";
-import type { Invoice } from "@/features/invoices/types";
-import { getInvoices } from "@/features/invoices/storage";
+import { useCallback } from "react";
+import type { Invoice } from "../types";
+import type {
+  InvoiceRepository,
+  RepositoryHealth,
+} from "../repository";
+import { useRepositoryQuery, type QueryState } from "./use-repository-query";
 
-const STORAGE_EVENT = "invoices-updated";
+type InvoicesData = { invoices: Invoice[]; health: RepositoryHealth };
 
-function subscribe(callback: () => void) {
-  window.addEventListener("storage", callback);
-  window.addEventListener(STORAGE_EVENT, callback);
-
-  return () => {
-    window.removeEventListener("storage", callback);
-    window.removeEventListener(STORAGE_EVENT, callback);
-  };
+async function loadInvoices(
+  repository: InvoiceRepository,
+): Promise<InvoicesData> {
+  const [invoices, health] = await Promise.all([
+    repository.list(),
+    repository.getHealth(),
+  ]);
+  return { invoices, health };
 }
 
-function getSnapshot() {
-  return JSON.stringify(getInvoices());
+/** All invoices plus storage health, with explicit loading and error states. */
+export function useInvoices(): QueryState<InvoicesData> {
+  return useRepositoryQuery(loadInvoices);
 }
 
-function getServerSnapshot() {
-  return "[]";
-}
-
-export function useInvoices() {
-  const snapshot = useSyncExternalStore(
-    subscribe,
-    getSnapshot,
-    getServerSnapshot,
+/** One invoice by id. `data` is null when no such invoice exists. */
+export function useInvoice(id: string): QueryState<Invoice | null> {
+  const load = useCallback(
+    (repository: InvoiceRepository) => repository.get(id),
+    [id],
   );
-
-  try {
-    return JSON.parse(snapshot) as Invoice[];
-  } catch {
-    return [];
-  }
+  return useRepositoryQuery(load);
 }

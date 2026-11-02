@@ -17,6 +17,8 @@ describe("calculateInvoiceTotals", () => {
 
     expect(result).toEqual({
       subtotalMinor: 10000,
+      discountMinor: 0,
+      taxableMinor: 10000,
       taxMinor: 1000,
       totalMinor: 11000,
     });
@@ -25,6 +27,8 @@ describe("calculateInvoiceTotals", () => {
   it("returns zero totals for an empty invoice", () => {
     expect(calculateInvoiceTotals([], 10)).toEqual({
       subtotalMinor: 0,
+      discountMinor: 0,
+      taxableMinor: 0,
       taxMinor: 0,
       totalMinor: 0,
     });

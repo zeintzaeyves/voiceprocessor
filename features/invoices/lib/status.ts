@@ -1,6 +1,22 @@
 
 import type { Invoice, InvoiceStatus } from "../types";
 
+/**
+ * Returns the invoices with each status replaced by its effective status
+ * (so unpaid invoices past their due date read "overdue"). Before `today`
+ * is known, e.g. on first render, stored statuses are used unchanged.
+ */
+export function withEffectiveStatus(
+  invoices: readonly Invoice[],
+  today: string,
+): Invoice[] {
+  if (!today) return [...invoices];
+  return invoices.map((invoice) => ({
+    ...invoice,
+    status: getEffectiveInvoiceStatus(invoice, today),
+  }));
+}
+
 export function getEffectiveInvoiceStatus(
   invoice: Invoice,
   today: string,

@@ -1,5 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { AppShell } from "@/components/shell/app-shell";
+import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,9 +15,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Currency Invoice Processor",
+  title: {
+    default: "Invoice Processor",
+    template: "%s · Invoice Processor",
+  },
   description:
-    "Create professional invoices with built-in currency conversion and invoice management.",
+    "Create, track and print invoices and receipts in multiple currencies.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#f7f7f5",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -24,7 +35,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full">
+        <ToastProvider>
+          <AppShell>{children}</AppShell>
+        </ToastProvider>
+      </body>
     </html>
   );
 }

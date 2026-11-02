@@ -13,6 +13,7 @@ const validInvoice: Invoice = {
   dueDate: "2026-10-20",
   currency: "USD",
   taxRatePercent: 10,
+  discount: { type: "none" },
   status: "draft",
   lineItems: [
     {

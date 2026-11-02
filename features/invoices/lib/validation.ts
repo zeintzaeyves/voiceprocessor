@@ -1,4 +1,4 @@
-
+import { invoiceSchema } from "../schema";
 import type { Invoice } from "../types";
 
 export type ValidationResult = {
@@ -6,70 +6,49 @@ export type ValidationResult = {
   errors: string[];
 };
 
-export function validateInvoice(invoice: Invoice): ValidationResult {
-  const errors: string[] = [];
-
-  if (!invoice.invoiceNumber.trim()) {
-    errors.push("Invoice number is required.");
+/** Prefixes line-item issues with their row, e.g. "Line item 2: price …". */
+function formatIssue(path: PropertyKey[], message: string): string {
+  if (path[0] === "lineItems" && typeof path[1] === "number") {
+    const lowered = message.charAt(0).toLowerCase() + message.slice(1);
+    return `Line item ${path[1] + 1}: ${lowered}`;
   }
+  return message;
+}
 
-  if (!invoice.clientName.trim()) {
-    errors.push("Client name is required.");
-  }
+/**
+ * Validates untrusted invoice data against the schema. Never throws and
+ * accepts `unknown` so malformed input cannot crash callers.
+ */
+export function validateInvoice(invoice: unknown): ValidationResult {
+  const result = invoiceSchema.safeParse(invoice);
 
-  if (!invoice.issueDate) {
-    errors.push("Issue date is required.");
-  }
-
-  if (!invoice.dueDate) {
-    errors.push("Due date is required.");
-  }
-
-  if (
-    invoice.issueDate &&
-    invoice.dueDate &&
-    invoice.dueDate < invoice.issueDate
-  ) {
-    errors.push("Due date cannot be before issue date.");
-  }
-
-  if (!invoice.currency.trim()) {
-    errors.push("Currency is required.");
-  }
-
-  if (
-    !Number.isFinite(invoice.taxRatePercent) ||
-    invoice.taxRatePercent < 0 ||
-    invoice.taxRatePercent > 100
-  ) {
-    errors.push("Tax rate must be between 0 and 100.");
-  }
-
-  if (invoice.lineItems.length === 0) {
-    errors.push("At least one line item is required.");
-  }
-
-  invoice.lineItems.forEach((item, index) => {
-    const row = index + 1;
-
-    if (!item.description.trim()) {
-      errors.push(`Line item ${row}: description is required.`);
-    }
-
-    if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
-      errors.push(`Line item ${row}: quantity must be greater than zero.`);
-    }
-
-    if (
-      !Number.isSafeInteger(item.unitPriceMinor) ||
-      item.unitPriceMinor < 0
-    ) {
-      errors.push(`Line item ${row}: unit price must be a non-negative integer in minor units.`);
-    }
-  });
+  if (result.success) return { valid: true, errors: [] };
 
   return {
-    valid: errors.length === 0,
-    errors,
+    valid: false,
+    errors: result.error.issues.map(
+      (issue) => formatIssue(issue.path, issue.message),
+    ),
   };
+}
+
+/** Field-keyed errors for forms: "dueDate" → message, "lineItems.0.quantity" → message. */
+export function getFieldErrors(invoice: unknown): Record<string, string> {
+  const result = invoiceSchema.safeParse(invoice);
+  if (result.success) return {};
+
+  const errors: Record<string, string> = {};
+  for (const issue of result.error.issues) {
+    const key = issue.path.join(".");
+    if (!(key in errors)) errors[key] = issue.message;
+  }
+  return errors;
+}
+
+export function parseInvoice(
+  invoice: unknown,
+): { ok: true; invoice: Invoice } | { ok: false; errors: string[] } {
+  const result = invoiceSchema.safeParse(invoice);
+  if (result.success) return { ok: true, invoice: result.data };
+  return { ok: false, errors: validateInvoice(invoice).errors };
 }

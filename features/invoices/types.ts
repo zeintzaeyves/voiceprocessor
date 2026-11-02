@@ -1,24 +1,14 @@
-export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
+import type { z } from "zod";
+import type {
+  discountSchema,
+  documentTypeSchema,
+  invoiceSchema,
+  invoiceStatusSchema,
+  lineItemSchema,
+} from "./schema";
 
-export type DocumentType = "invoice" | "receipt";
-
-export type InvoiceLineItem = {
-  id: string;
-  description: string;
-  quantity: number;
-  unitPriceMinor: number;
-};
-
-export type Invoice = {
-  id: string;
-  documentType: DocumentType;
-  companyName: string;
-  invoiceNumber: string;
-  clientName: string;
-  issueDate: string;
-  dueDate: string;
-  currency: string;
-  taxRatePercent: number;
-  status: InvoiceStatus;
-  lineItems: InvoiceLineItem[];
-};
+export type InvoiceStatus = z.infer<typeof invoiceStatusSchema>;
+export type DocumentType = z.infer<typeof documentTypeSchema>;
+export type InvoiceLineItem = z.infer<typeof lineItemSchema>;
+export type InvoiceDiscount = z.infer<typeof discountSchema>;
+export type Invoice = z.infer<typeof invoiceSchema>;

@@ -1,24 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
+import { Field, Input, Select } from "@/components/ui/form-controls";
+import { SUPPORTED_CURRENCIES } from "@/features/invoices/lib/currencies";
+import { formatDate } from "@/features/invoices/lib/dates";
 import { getExchangeRate } from "../lib/frankfurter";
 
-const currencies = [
-  { code: "USD", name: "US Dollar" },
-  { code: "PHP", name: "Philippine Peso" },
-  { code: "EUR", name: "Euro" },
-  { code: "GBP", name: "British Pound" },
-  { code: "JPY", name: "Japanese Yen" },
-];
+type Result = {
+  amount: number;
+  base: string;
+  target: string;
+  converted: number;
+  date: string;
+};
 
-const inputClass =
-  "min-h-11 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-gray-500";
-
-function formatMoney(amount: number, currency: string) {
+/** Exchange amounts are real numbers, not invoice minor units. */
+function formatAmount(amount: number, currency: string, digits = 2) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: digits,
   }).format(amount);
 }
 
@@ -26,160 +29,160 @@ export function CurrencyConverter() {
   const [amount, setAmount] = useState("100");
   const [base, setBase] = useState("USD");
   const [target, setTarget] = useState("PHP");
-  const [rate, setRate] = useState<number | null>(null);
-  const [rateDate, setRateDate] = useState("");
+  const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
+  const [amountError, setAmountError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleConvert(event: React.FormEvent<HTMLFormElement>) {
+  // Only the most recent request may update the screen.
+  const latestRequest = useRef(0);
+
+  function swap() {
+    setBase(target);
+    setTarget(base);
+    setResult(null);
+  }
+
+  async function handleConvert(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const numericAmount = Number(amount);
-
-    if (!Number.isFinite(numericAmount) || numericAmount < 0) {
-      setError("Enter a valid amount of zero or more.");
+    const numeric = Number(amount);
+    if (amount.trim() === "" || !Number.isFinite(numeric) || numeric < 0) {
+      setAmountError("Enter an amount of zero or more.");
       return;
     }
 
-    setLoading(true);
+    const request = ++latestRequest.current;
+    setAmountError("");
     setError("");
-    setRate(null);
+    setResult(null);
+    setLoading(true);
 
     try {
-      const result = await getExchangeRate(base, target, numericAmount);
-      setRate(result.rates[target]);
-      setRateDate(result.date);
+      const response = await getExchangeRate(base, target, numeric);
+      if (request !== latestRequest.current) return;
+
+      setResult({
+        amount: numeric,
+        base,
+        target,
+        converted: response.rates[target],
+        date: response.date,
+      });
     } catch (caught) {
+      if (request !== latestRequest.current) return;
       setError(
         caught instanceof Error
           ? caught.message
           : "Something went wrong while converting currencies.",
       );
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
   }
 
-  const convertedAmount =
-    rate === null ? null : base === target ? Number(amount) : rate;
-
   return (
-    <section className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-8">
-      <div className="mb-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
-          Exchange rates
-        </p>
-        <h2 className="mt-2 text-xl font-semibold">Currency converter</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          Convert using the latest available reference rate.
-        </p>
-      </div>
+    <Card className="max-w-2xl">
+      <CardHeader
+        title="Convert an amount"
+        description="Uses the latest reference rate published by the European Central Bank via Frankfurter."
+      />
 
-      <form onSubmit={handleConvert} className="space-y-5">
-        <div>
-          <label
-            htmlFor="conversion-amount"
-            className="mb-2 block text-sm font-medium"
+      <form onSubmit={handleConvert} noValidate className="space-y-5 p-5">
+        <Field label="Amount" error={amountError} required>
+          {(props) => (
+            <Input
+              {...props}
+              type="text"
+              inputMode="decimal"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+            />
+          )}
+        </Field>
+
+        <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
+          <Field label="From">
+            {(props) => (
+              <Select
+                {...props}
+                value={base}
+                onChange={(event) => {
+                  setBase(event.target.value);
+                  setResult(null);
+                }}
+              >
+                {SUPPORTED_CURRENCIES.map(({ code, name }) => (
+                  <option key={code} value={code}>
+                    {code} — {name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+
+          <Button
+            onClick={swap}
+            aria-label="Swap currencies"
+            className="mx-auto sm:mb-0"
           >
-            Amount
-          </label>
-          <input
-            id="conversion-amount"
-            type="number"
-            min="0"
-            step="any"
-            required
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            className={inputClass}
-          />
+            ⇄
+          </Button>
+
+          <Field label="To">
+            {(props) => (
+              <Select
+                {...props}
+                value={target}
+                onChange={(event) => {
+                  setTarget(event.target.value);
+                  setResult(null);
+                }}
+              >
+                {SUPPORTED_CURRENCIES.map(({ code, name }) => (
+                  <option key={code} value={code}>
+                    {code} — {name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label
-              htmlFor="base-currency"
-              className="mb-2 block text-sm font-medium"
-            >
-              From
-            </label>
-            <select
-              id="base-currency"
-              value={base}
-              onChange={(event) => setBase(event.target.value)}
-              className={inputClass}
-            >
-              {currencies.map((currency) => (
-                <option key={currency.code} value={currency.code}>
-                  {currency.code} — {currency.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="target-currency"
-              className="mb-2 block text-sm font-medium"
-            >
-              To
-            </label>
-            <select
-              id="target-currency"
-              value={target}
-              onChange={(event) => setTarget(event.target.value)}
-              className={inputClass}
-            >
-              {currencies.map((currency) => (
-                <option key={currency.code} value={currency.code}>
-                  {currency.code} — {currency.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="min-h-11 w-full rounded-lg bg-gray-950 px-4 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {loading ? "Fetching rate..." : "Convert currency"}
-        </button>
+        <Button type="submit" variant="primary" loading={loading}>
+          {loading ? "Converting" : "Convert"}
+        </Button>
       </form>
 
-      {error && (
-        <p
-          role="alert"
-          className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-        >
-          {error}
-        </p>
-      )}
-
-      {convertedAmount !== null && !error && (
-        <div className="mt-6 rounded-xl bg-gray-50 p-5">
-          <p className="text-sm text-gray-500">Converted amount</p>
-          <p className="mt-2 break-words text-3xl font-semibold tracking-tight">
-            {formatMoney(convertedAmount, target)}
+      <div aria-live="polite" className="border-t border-line p-5">
+        {error && (
+          <p role="alert" className="text-sm text-danger">
+            {error}
           </p>
+        )}
 
-          <p className="mt-3 text-sm text-gray-500">
-            {base === target
-              ? `1 ${base} = 1 ${target}`
-              : `1 ${base} = ${(rate! / Number(amount || 1)).toLocaleString(
-                  "en-US",
-                  { maximumFractionDigits: 6 },
-                )} ${target}`}
-          </p>
-
-          {rateDate && (
-            <p className="mt-1 text-xs text-gray-400">
-              Reference rate date: {rateDate}
+        {result && (
+          <div>
+            <p className="text-sm text-ink-muted">
+              {formatAmount(result.amount, result.base)} =
             </p>
-          )}
-        </div>
-      )}
-    </section>
+            <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums">
+              {formatAmount(result.converted, result.target)}
+            </p>
+            <p className="mt-3 text-xs text-ink-faint">
+              {result.amount > 0 &&
+                `1 ${result.base} = ${formatAmount(result.converted / result.amount, result.target, 4)} · `}
+              Rate from {formatDate(result.date)}
+            </p>
+          </div>
+        )}
+
+        {!error && !result && !loading && (
+          <p className="text-sm text-ink-muted">
+            Choose currencies and an amount to see the converted value.
+          </p>
+        )}
+      </div>
+    </Card>
   );
 }

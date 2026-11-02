@@ -1,679 +1,473 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
-import type { DocumentType, Invoice, InvoiceLineItem } from "../types";
-import { calculateInvoiceTotals } from "../lib/calculations";
-import { validateInvoice } from "../lib/validation";
-import {
-  getInvoices,
-  getNextDocumentNumber,
-  saveInvoice,
-} from "../storage";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Button, LinkButton } from "@/components/ui/button";
+import { Card, CardHeader } from "@/components/ui/card";
+import { Field, Input, Select, Textarea } from "@/components/ui/form-controls";
+import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/cn";
+import { useInvoiceForm } from "../hooks/use-invoice-form";
+import { useToday } from "../hooks/use-today";
+import { SUPPORTED_CURRENCIES, type CurrencyCode } from "../lib/currencies";
+import { formatMoney } from "../lib/money";
+import type { DiscountKind } from "../lib/form-state";
+import type { DocumentType, Invoice } from "../types";
+import { LineItemsEditor } from "./form/line-items-editor";
+import { InvoiceDocument } from "./invoice-document";
 
-type InvoiceFormProps = {
-  invoiceId?: string;
+type Props = {
+  /** Present when editing; absent when creating. */
   initialInvoice?: Invoice;
 };
 
-type DraftLineItem = {
-  id: string;
-  description: string;
-  quantity: number;
-  unitPrice: string;
-};
+const DOCUMENT_TYPES: Array<{ value: DocumentType; label: string; hint: string }> = [
+  { value: "invoice", label: "Invoice", hint: "Request payment" },
+  { value: "receipt", label: "Receipt", hint: "Confirm a payment" },
+];
 
-const inputClass =
-  "box-border min-h-11 w-full min-w-0 max-w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-gray-500 focus:ring-2 focus:ring-gray-200 disabled:cursor-not-allowed disabled:bg-gray-100";
-
-const dateInputClass =
-  `${inputClass} cursor-pointer appearance-auto`;
-
-function getTodayLocalDate() {
-  const today = new Date();
-
-  return [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-function formatMoney(amountMinor: number, currency: string) {
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-    }).format(amountMinor / 100);
-  } catch {
-    return `${currency} ${(amountMinor / 100).toFixed(2)}`;
-  }
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+function FormSkeleton() {
   return (
-    <div className="min-w-0">
-      <label className="mb-2 block text-sm font-medium">{label}</label>
-      {children}
+    <div aria-busy="true" aria-label="Loading form" className="space-y-4">
+      <Skeleton className="h-10 w-64" />
+      <Skeleton className="h-48 w-full" />
+      <Skeleton className="h-64 w-full" />
     </div>
   );
 }
 
-export function InvoiceForm({
-  invoiceId,
+/**
+ * New documents are seeded with today's date, which is only known in the
+ * browser. Waiting for it here keeps the server-rendered page free of a
+ * build-time date.
+ */
+export function InvoiceForm({ initialInvoice }: Props) {
+  const today = useToday();
+  if (!initialInvoice && !today) return <FormSkeleton />;
+  return <InvoiceFormInner initialInvoice={initialInvoice} today={today} />;
+}
+
+function InvoiceFormInner({
   initialInvoice,
-}: InvoiceFormProps) {
-  const [companyName, setCompanyName] = useState(
-    initialInvoice?.companyName ?? "",
-  );
+  today,
+}: Props & { today: string }) {
+  const form = useInvoiceForm({ initialInvoice, today });
+  const { values, errorFor, touch } = form;
 
-  const [documentType, setDocumentType] = useState<DocumentType>(
-    initialInvoice?.documentType ?? "invoice",
-  );
+  const [view, setView] = useState<"edit" | "preview">("edit");
+  const formRef = useRef<HTMLFormElement>(null);
 
-  const [clientName, setClientName] = useState(
-    initialInvoice?.clientName ?? "",
-  );
+  const isReceipt = values.documentType === "receipt";
+  const label = isReceipt ? "receipt" : "invoice";
 
-  const [issueDate, setIssueDate] = useState(
-    initialInvoice?.issueDate ?? "",
-  );
+  // After a rejected save, bring the first problem into view and focus it.
+  const { focusRequest } = form;
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    formRef.current
+      ?.querySelector<HTMLElement>('[aria-invalid="true"]')
+      ?.focus();
+  }, [focusRequest]);
 
-  const [dueDate, setDueDate] = useState(
-    initialInvoice?.dueDate ?? "",
-  );
-
-  const [currency, setCurrency] = useState(
-    initialInvoice?.currency ?? "USD",
-  );
-
-  const [taxRate, setTaxRate] = useState(
-    initialInvoice?.taxRatePercent ?? 10,
-  );
-
-  const [invoiceNumber, setInvoiceNumber] = useState(
-    initialInvoice?.invoiceNumber ?? "",
-  );
-
-  const [lineItems, setLineItems] = useState<DraftLineItem[]>(
-    initialInvoice
-      ? initialInvoice.lineItems.map((item) => ({
-          id: item.id,
-          description: item.description,
-          quantity: item.quantity,
-          unitPrice: (item.unitPriceMinor / 100).toFixed(2),
-        }))
-      : [
-          {
-            id: "item-initial",
-            description: "",
-            quantity: 1,
-            unitPrice: "0.00",
-          },
-        ],
-  );
-
-  const [errors, setErrors] = useState<string[]>([]);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [savedDocumentId, setSavedDocumentId] = useState<string | null>(
-    initialInvoice?.id ?? null,
-  );
-
-  const submittingRef = useRef(false);
-
-  const invoiceLineItems: InvoiceLineItem[] = lineItems.map((item) => ({
-    id: item.id,
-    description: item.description.trim(),
-    quantity: Number(item.quantity),
-    unitPriceMinor: Math.round(Number(item.unitPrice) * 100),
-  }));
-
-  const totals = calculateInvoiceTotals(invoiceLineItems, taxRate);
-
-  const isReceipt = documentType === "receipt";
-  const documentLabel = isReceipt ? "receipt" : "invoice";
-
-  function updateLineItem(
-    id: string,
-    field: keyof Omit<DraftLineItem, "id">,
-    value: string | number,
-  ) {
-    setLineItems((current) =>
-      current.map((item) =>
-        item.id === id ? { ...item, [field]: value } : item,
-      ),
-    );
-
-    setSaved(false);
-  }
-
-  function addLineItem() {
-    setLineItems((current) => [
-      ...current,
-      {
-        id: crypto.randomUUID(),
-        description: "",
-        quantity: 1,
-        unitPrice: "0.00",
-      },
-    ]);
-
-    setSaved(false);
-  }
-
-  function removeLineItem(id: string) {
-    setLineItems((current) => current.filter((item) => item.id !== id));
-    setSaved(false);
-  }
-
-  function handleIssueDateChange(nextDate: string) {
-    setIssueDate(nextDate);
-    setSaved(false);
-    setErrors([]);
-
-    if (invoiceId || !nextDate) return;
-
-    try {
-      setInvoiceNumber(getNextDocumentNumber(documentType, nextDate));
-    } catch (error) {
-      setInvoiceNumber("");
-      setErrors([
-        error instanceof Error
-          ? error.message
-          : "Unable to generate the document number.",
-      ]);
-    }
-  }
-
-  function handleDocumentTypeChange(nextType: DocumentType) {
-    if (invoiceId) return;
-
-    setDocumentType(nextType);
-    setSaved(false);
-    setErrors([]);
-
-    if (!issueDate) {
-      setInvoiceNumber("");
-      return;
-    }
-
-    try {
-      setInvoiceNumber(getNextDocumentNumber(nextType, issueDate));
-    } catch (error) {
-      setInvoiceNumber("");
-      setErrors([
-        error instanceof Error
-          ? error.message
-          : "Unable to generate the document number.",
-      ]);
-    }
-  }
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (submittingRef.current || saved) return;
-
-    submittingRef.current = true;
-    setSaving(true);
-    setErrors([]);
-
-    try {
-      const existingDocuments = getInvoices();
-
-      const existingDocument = invoiceId
-        ? existingDocuments.find((item) => item.id === invoiceId)
-        : undefined;
-
-      if (invoiceId && !existingDocument) {
-        setErrors([
-          "This document could not be found in local storage. Return to the dashboard and try again.",
-        ]);
-        return;
-      }
-
-      const finalDocumentType =
-        existingDocument?.documentType ?? documentType;
-
-      const finalDocumentNumber = invoiceId
-        ? existingDocument!.invoiceNumber
-        : getNextDocumentNumber(finalDocumentType, issueDate);
-
-      const duplicate = existingDocuments.some(
-        (item) =>
-          item.id !== invoiceId &&
-          item.invoiceNumber.trim().toLowerCase() ===
-            finalDocumentNumber.trim().toLowerCase(),
-      );
-
-      if (duplicate) {
-        setErrors([
-          `Document number "${finalDocumentNumber}" is already in use. Please try again.`,
-        ]);
-        return;
-      }
-
-      const invoice: Invoice = {
-        id: invoiceId ?? crypto.randomUUID(),
-        documentType: finalDocumentType,
-        companyName: companyName.trim(),
-        invoiceNumber: finalDocumentNumber,
-        clientName: clientName.trim(),
-        issueDate,
-        dueDate,
-        currency,
-        taxRatePercent: Number(taxRate),
-        status:
-          existingDocument?.status ??
-          initialInvoice?.status ??
-          (finalDocumentType === "receipt" ? "paid" : "draft"),
-        lineItems: invoiceLineItems,
-      };
-
-      const result = validateInvoice(invoice);
-
-      if (!result.valid) {
-        setErrors(result.errors);
-        return;
-      }
-
-      saveInvoice(invoice);
-
-      setInvoiceNumber(finalDocumentNumber);
-      setSavedDocumentId(invoice.id);
-      setSaved(true);
-    } catch (error) {
-      setErrors([
-        error instanceof Error
-          ? error.message
-          : "Unable to save the document. Please try again.",
-      ]);
-    } finally {
-      submittingRef.current = false;
-      setSaving(false);
-    }
+    const saved = await form.submit();
+    // A rejected save may be showing the preview tab; errors live on the edit tab.
+    if (!saved) setView("edit");
   }
+
+  const documentData = {
+    ...form.invoice,
+    invoiceNumber: form.invoiceNumber,
+    status: form.status,
+  };
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6 text-gray-950 sm:px-8 sm:py-10">
-      <div className="mx-auto w-full max-w-4xl min-w-0">
-        <Link
-          href="/"
-          className="text-sm text-gray-500 transition hover:text-gray-950"
-        >
-          ← Back to documents
-        </Link>
+    <>
+      <Link
+        href={form.isEditing ? `/invoices/${initialInvoice?.id}` : "/invoices"}
+        className="mb-4 inline-block text-sm text-ink-muted transition hover:text-ink"
+      >
+        ← {form.isEditing ? "Back to document" : "All documents"}
+      </Link>
 
-        <header className="mb-8 mt-6">
-          <p className="mb-2 text-sm font-medium uppercase tracking-[0.2em] text-gray-500">
-            Currency Invoice Processor
-          </p>
+      <PageHeader
+        title={form.isEditing ? `Edit ${label}` : `New ${label}`}
+        description={
+          form.isEditing
+            ? `Changes to ${form.invoiceNumber} are saved to this browser.`
+            : "Fill in the details. The preview updates as you type."
+        }
+      />
 
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {invoiceId
-              ? `Edit ${documentLabel}`
-              : `Create ${documentLabel}`}
-          </h1>
+      {/* Below xl the form and preview share the screen via tabs. */}
+      <div
+        role="group"
+        aria-label="Switch between editing and preview"
+        className="mb-5 grid grid-cols-2 gap-1 rounded-md bg-sunken p-1 xl:hidden"
+      >
+        {(["edit", "preview"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            aria-pressed={view === tab}
+            onClick={() => setView(tab)}
+            className={cn(
+              "min-h-10 rounded-sm text-sm font-medium capitalize transition duration-150",
+              view === tab
+                ? "bg-surface text-ink shadow-card"
+                : "text-ink-muted hover:text-ink",
+            )}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
 
-          <p className="mt-2 text-sm text-gray-500">
-            Enter your business details and add the products or services for
-            your document.
-          </p>
-        </header>
+      <form
+        ref={formRef}
+        noValidate
+        onSubmit={handleSubmit}
+        className="xl:grid xl:grid-cols-[minmax(0,1fr)_26rem] xl:items-start xl:gap-8"
+      >
+        <div className={cn("space-y-6", view === "preview" && "hidden xl:block xl:space-y-6")}>
+          {/* ------------------------------------------------ Document */}
+          <Card>
+            <CardHeader title="Document" />
+            <div className="grid gap-5 p-5 sm:grid-cols-2">
+              <fieldset className="sm:col-span-2">
+                <legend className="mb-1.5 text-sm font-medium">Document type</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {DOCUMENT_TYPES.map((option) => {
+                    const selected = values.documentType === option.value;
+                    return (
+                      <label
+                        key={option.value}
+                        className={cn(
+                          "flex min-h-14 cursor-pointer flex-col justify-center rounded-md border px-4 py-2 transition duration-150 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent",
+                          selected
+                            ? "border-ink bg-surface shadow-card"
+                            : "border-line-strong bg-surface hover:border-ink-faint",
+                          form.isEditing && "cursor-not-allowed opacity-60",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="documentType"
+                          value={option.value}
+                          checked={selected}
+                          disabled={form.isEditing}
+                          onChange={() => form.setField("documentType", option.value)}
+                          className="sr-only"
+                        />
+                        <span className="text-sm font-medium">{option.label}</span>
+                        <span className="text-xs text-ink-muted">{option.hint}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 sm:p-8">
-            <h2 className="mb-6 text-lg font-semibold">Document details</h2>
-
-            <div className="grid min-w-0 grid-cols-1 gap-5 sm:grid-cols-2">
-              <Field label="Company name">
-                <input
-                  required
-                  value={companyName}
-                  onChange={(event) => {
-                    setCompanyName(event.target.value);
-                    setSaved(false);
-                  }}
-                  className={inputClass}
-                  placeholder="Your business name"
-                />
+              <Field
+                label="Document number"
+                hint="Assigned automatically when you save."
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    readOnly
+                    value={form.invoiceNumber}
+                    placeholder="Pick an issue date"
+                    className="bg-sunken font-mono text-ink-muted"
+                  />
+                )}
               </Field>
 
-              <Field label="Document type">
-                <select
-                  required
-                  value={documentType}
-                  disabled={Boolean(invoiceId)}
-                  onChange={(event) =>
-                    handleDocumentTypeChange(
-                      event.target.value as DocumentType,
-                    )
-                  }
-                  className={inputClass}
-                >
-                  <option value="invoice">Invoice</option>
-                  <option value="receipt">Receipt</option>
-                </select>
-              </Field>
-
-              <Field label="Document number">
-                <input
-                  required
-                  value={invoiceNumber || "Select an issue date"}
-                  readOnly
-                  className={`${inputClass} cursor-not-allowed bg-gray-50 text-gray-600`}
-                />
-              </Field>
-
-              <Field label="Client name">
-                <input
-                  required
-                  value={clientName}
-                  onChange={(event) => {
-                    setClientName(event.target.value);
-                    setSaved(false);
-                  }}
-                  className={inputClass}
-                  placeholder="Client or company name"
-                />
-              </Field>
-
-              <Field label={isReceipt ? "Payment date" : "Issue date"}>
-                <input
-                  required
-                  type="date"
-                  value={issueDate}
-                  onFocus={() => {
-                    if (!issueDate && !invoiceId) {
-                      handleIssueDateChange(getTodayLocalDate());
+              <Field label="Currency" required>
+                {(props) => (
+                  <Select
+                    {...props}
+                    value={values.currency}
+                    onChange={(event) =>
+                      form.setField("currency", event.target.value as CurrencyCode)
                     }
-                  }}
-                  onChange={(event) =>
-                    handleIssueDateChange(event.target.value)
-                  }
-                  className={dateInputClass}
-                />
+                  >
+                    {SUPPORTED_CURRENCIES.map(({ code, name }) => (
+                      <option key={code} value={code}>
+                        {code} — {name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+
+              <Field
+                label={isReceipt ? "Payment date" : "Issue date"}
+                error={errorFor("issueDate")}
+                required
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    type="date"
+                    value={values.issueDate}
+                    onChange={(event) => form.setField("issueDate", event.target.value)}
+                    onBlur={() => touch("issueDate")}
+                  />
+                )}
               </Field>
 
               {!isReceipt && (
-                <Field label="Due date">
-                  <input
-                    required
-                    type="date"
-                    value={dueDate}
-                    onChange={(event) => {
-                      setDueDate(event.target.value);
-                      setSaved(false);
-                    }}
-                    className={dateInputClass}
-                  />
+                <Field label="Due date" error={errorFor("dueDate")} required>
+                  {(props) => (
+                    <Input
+                      {...props}
+                      type="date"
+                      value={values.dueDate}
+                      onChange={(event) => form.setField("dueDate", event.target.value)}
+                      onBlur={() => touch("dueDate")}
+                    />
+                  )}
                 </Field>
               )}
+            </div>
+          </Card>
 
-              <Field label="Currency">
-                <select
-                  value={currency}
-                  onChange={(event) => {
-                    setCurrency(event.target.value);
-                    setSaved(false);
-                  }}
-                  className={inputClass}
-                >
-                  <option value="USD">USD — US Dollar</option>
-                  <option value="PHP">PHP — Philippine Peso</option>
-                  <option value="EUR">EUR — Euro</option>
-                  <option value="GBP">GBP — British Pound</option>
-                  <option value="JPY">JPY — Japanese Yen</option>
-                </select>
+          {/* ---------------------------------------------------- From */}
+          <Card>
+            <CardHeader title="From" description="Your business details." />
+            <div className="grid gap-5 p-5 sm:grid-cols-2">
+              <Field label="Company name" error={errorFor("companyName")} required className="sm:col-span-2">
+                {(props) => (
+                  <Input
+                    {...props}
+                    autoComplete="organization"
+                    maxLength={120}
+                    value={values.companyName}
+                    placeholder="Your business name"
+                    onChange={(event) => form.setField("companyName", event.target.value)}
+                    onBlur={() => touch("companyName")}
+                  />
+                )}
               </Field>
-
-              <Field label="Tax rate (%)">
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={taxRate}
-                  onChange={(event) => {
-                    setTaxRate(Number(event.target.value));
-                    setSaved(false);
-                  }}
-                  className={inputClass}
-                />
+              <Field label="Email" error={errorFor("companyEmail")}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    type="email"
+                    autoComplete="email"
+                    value={values.companyEmail}
+                    onChange={(event) => form.setField("companyEmail", event.target.value)}
+                    onBlur={() => touch("companyEmail")}
+                  />
+                )}
+              </Field>
+              <Field label="Address" error={errorFor("companyAddress")} className="sm:col-span-2">
+                {(props) => (
+                  <Textarea
+                    {...props}
+                    rows={2}
+                    maxLength={300}
+                    value={values.companyAddress}
+                    onChange={(event) => form.setField("companyAddress", event.target.value)}
+                    onBlur={() => touch("companyAddress")}
+                  />
+                )}
               </Field>
             </div>
+          </Card>
 
-            {isReceipt && (
-              <p className="mt-4 rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
-                Receipts are saved with a Paid status.
-              </p>
-            )}
-          </section>
+          {/* ------------------------------------------------- Bill to */}
+          <Card>
+            <CardHeader title="Bill to" description="Who this document is for." />
+            <div className="grid gap-5 p-5 sm:grid-cols-2">
+              <Field label="Client name" error={errorFor("clientName")} required className="sm:col-span-2">
+                {(props) => (
+                  <Input
+                    {...props}
+                    maxLength={120}
+                    value={values.clientName}
+                    placeholder="Client or company name"
+                    onChange={(event) => form.setField("clientName", event.target.value)}
+                    onBlur={() => touch("clientName")}
+                  />
+                )}
+              </Field>
+              <Field label="Client email" error={errorFor("clientEmail")}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    type="email"
+                    value={values.clientEmail}
+                    onChange={(event) => form.setField("clientEmail", event.target.value)}
+                    onBlur={() => touch("clientEmail")}
+                  />
+                )}
+              </Field>
+              <Field label="Client address" error={errorFor("clientAddress")} className="sm:col-span-2">
+                {(props) => (
+                  <Textarea
+                    {...props}
+                    rows={2}
+                    maxLength={300}
+                    value={values.clientAddress}
+                    onChange={(event) => form.setField("clientAddress", event.target.value)}
+                    onBlur={() => touch("clientAddress")}
+                  />
+                )}
+              </Field>
+            </div>
+          </Card>
 
-          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 sm:p-8">
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <h2 className="text-lg font-semibold">Line items</h2>
-                <p className="mt-1 text-sm text-gray-500">
-                  Add the products or services being listed on this document.
+          {/* ----------------------------------------------- Line items */}
+          <Card>
+            <CardHeader
+              title="Items"
+              description={`Amounts are in ${values.currency}.`}
+              action={
+                <Button size="sm" onClick={form.addLine}>
+                  Add item
+                </Button>
+              }
+            />
+            <div className="p-5">
+              <LineItemsEditor
+                lines={values.lineItems}
+                parsed={form.invoice.lineItems}
+                currency={values.currency}
+                errorFor={errorFor}
+                touch={touch}
+                onChange={form.updateLine}
+                onRemove={form.removeLine}
+                focusLineId={form.focusLineId}
+                onFocused={form.clearFocusLine}
+              />
+              {errorFor("lineItems") && (
+                <p role="alert" className="mt-3 text-xs text-danger">
+                  {errorFor("lineItems")}
                 </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={addLineItem}
-                className="min-h-11 shrink-0 self-start rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium transition hover:bg-gray-50 sm:self-auto"
-              >
-                + Add item
-              </button>
+              )}
             </div>
+          </Card>
 
-            <div className="space-y-4">
-              {lineItems.map((item, index) => (
-                <div
-                  key={item.id}
-                  className="grid min-w-0 grid-cols-1 gap-4 rounded-xl border border-gray-100 p-3 sm:grid-cols-12 sm:p-4"
+          {/* -------------------------------------------- Adjustments */}
+          <Card>
+            <CardHeader title="Tax and discount" description="The discount is applied before tax." />
+            <div className="grid gap-5 p-5 sm:grid-cols-2">
+              <Field label="Tax rate (%)" error={errorFor("taxRatePercent")}>
+                {(props) => (
+                  <Input
+                    {...props}
+                    inputMode="decimal"
+                    value={values.taxRate}
+                    onChange={(event) => form.setField("taxRate", event.target.value)}
+                    onBlur={() => touch("taxRatePercent")}
+                  />
+                )}
+              </Field>
+
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3">
+                <Field label="Discount">
+                  {(props) => (
+                    <Select
+                      {...props}
+                      value={values.discountKind}
+                      onChange={(event) =>
+                        form.setDiscountKind(event.target.value as DiscountKind)
+                      }
+                    >
+                      <option value="none">None</option>
+                      <option value="percent">Percentage</option>
+                      <option value="fixed">Fixed amount</option>
+                    </Select>
+                  )}
+                </Field>
+                <Field
+                  label={values.discountKind === "percent" ? "Percent off" : "Amount off"}
+                  error={errorFor("discount")}
                 >
-                  <div className="min-w-0 sm:col-span-5">
-                    <label
-                      className="mb-2 block text-sm font-medium"
-                      htmlFor={`description-${item.id}`}
-                    >
-                      Description
-                    </label>
-
-                    <input
-                      id={`description-${item.id}`}
-                      required
-                      value={item.description}
-                      onChange={(event) =>
-                        updateLineItem(
-                          item.id,
-                          "description",
-                          event.target.value,
-                        )
-                      }
-                      className={inputClass}
-                      placeholder={`Item ${index + 1}`}
+                  {(props) => (
+                    <Input
+                      {...props}
+                      inputMode="decimal"
+                      disabled={values.discountKind === "none"}
+                      value={values.discountValue}
+                      placeholder={values.discountKind === "none" ? "—" : undefined}
+                      onChange={(event) => form.setField("discountValue", event.target.value)}
+                      onBlur={() => touch("discount")}
                     />
-                  </div>
-
-                  <div className="min-w-0 sm:col-span-2">
-                    <label
-                      className="mb-2 block text-sm font-medium"
-                      htmlFor={`quantity-${item.id}`}
-                    >
-                      Quantity
-                    </label>
-
-                    <input
-                      id={`quantity-${item.id}`}
-                      required
-                      type="number"
-                      min="0.01"
-                      step="any"
-                      value={item.quantity}
-                      onChange={(event) =>
-                        updateLineItem(
-                          item.id,
-                          "quantity",
-                          Number(event.target.value),
-                        )
-                      }
-                      className={inputClass}
-                    />
-                  </div>
-
-                  <div className="min-w-0 sm:col-span-3">
-                    <label
-                      className="mb-2 block text-sm font-medium"
-                      htmlFor={`price-${item.id}`}
-                    >
-                      Unit price
-                    </label>
-
-                    <input
-                      id={`price-${item.id}`}
-                      required
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={item.unitPrice}
-                      onChange={(event) =>
-                        updateLineItem(
-                          item.id,
-                          "unitPrice",
-                          event.target.value,
-                        )
-                      }
-                      className={inputClass}
-                    />
-                  </div>
-
-                  <div className="min-w-0 sm:col-span-2">
-                    <span className="mb-2 block text-sm font-medium">
-                      Line total
-                    </span>
-
-                    <div className="flex min-h-11 min-w-0 items-center break-words font-medium">
-                      {formatMoney(
-                        Math.round(
-                          Number(item.quantity) *
-                            Number(item.unitPrice || 0) *
-                            100,
-                        ),
-                        currency,
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={lineItems.length === 1}
-                      onClick={() => removeLineItem(item.id)}
-                      className="mt-1 text-xs text-red-600 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 sm:p-8">
-            <h2 className="mb-5 text-lg font-semibold">Summary</h2>
-
-            <div className="ml-auto w-full max-w-sm space-y-3 text-sm">
-              <div className="flex justify-between gap-4 text-gray-600">
-                <span>Subtotal</span>
-                <span className="text-right">
-                  {formatMoney(totals.subtotalMinor, currency)}
-                </span>
-              </div>
-
-              <div className="flex justify-between gap-4 text-gray-600">
-                <span>Tax ({taxRate || 0}%)</span>
-                <span className="text-right">
-                  {formatMoney(totals.taxMinor, currency)}
-                </span>
-              </div>
-
-              <div className="flex justify-between gap-4 border-t border-gray-200 pt-4 text-base font-semibold">
-                <span>{isReceipt ? "Amount paid" : "Total due"}</span>
-                <span className="text-right">
-                  {formatMoney(totals.totalMinor, currency)}
-                </span>
+                  )}
+                </Field>
               </div>
             </div>
-          </section>
+          </Card>
 
-          {errors.length > 0 && (
+          {/* ------------------------------------------------------ Notes */}
+          <Card>
+            <CardHeader title="Notes" description="Payment instructions, thanks, or terms. Optional." />
+            <div className="p-5">
+              <Field label="Notes" error={errorFor("notes")} labelClassName="sr-only">
+                {(props) => (
+                  <Textarea
+                    {...props}
+                    rows={3}
+                    maxLength={1000}
+                    value={values.notes}
+                    onChange={(event) => form.setField("notes", event.target.value)}
+                    onBlur={() => touch("notes")}
+                  />
+                )}
+              </Field>
+            </div>
+          </Card>
+
+          {form.submitErrors.length > 0 && (
             <div
               role="alert"
-              className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+              className="rounded-md border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-danger"
             >
-              <p className="mb-2 font-semibold">Please fix the following:</p>
-              <ul className="list-inside list-disc space-y-1">
-                {errors.map((error, index) => (
-                  <li key={`${index}-${error}`}>{error}</li>
+              <p className="font-medium">This {label} could not be saved.</p>
+              <ul className="mt-1 list-inside list-disc">
+                {form.submitErrors.map((message) => (
+                  <li key={message}>{message}</li>
                 ))}
               </ul>
             </div>
           )}
 
-          {saved && (
-            <div
-              role="status"
-              className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700"
-            >
-              {isReceipt ? "Receipt" : "Invoice"}{" "}
-              {invoiceId ? "updated" : "saved"} successfully!
-
-              {savedDocumentId && (
-                <div className="mt-2">
-                  <Link
-                    href={`/invoices/${savedDocumentId}`}
-                    className="font-semibold underline"
-                  >
-                    View {documentLabel}
-                  </Link>
-                </div>
-              )}
+          <div className="sticky bottom-0 z-20 -mx-4 flex items-center justify-between gap-4 border-t border-line bg-canvas/90 px-4 py-3 backdrop-blur sm:-mx-8 sm:px-8 xl:mx-0 xl:rounded-lg xl:border xl:bg-surface xl:px-5">
+            <div className="min-w-0">
+              <p className="text-xs text-ink-muted">{isReceipt ? "Amount paid" : "Total due"}</p>
+              <p className="truncate text-lg font-semibold tracking-tight tabular-nums">
+                {formatMoney(form.totals.totalMinor, values.currency)}
+              </p>
             </div>
-          )}
-
-          <div className="flex flex-col-reverse justify-end gap-3 sm:flex-row">
-            <Link
-              href="/"
-              className="inline-flex min-h-12 items-center justify-center rounded-lg border border-gray-200 bg-white px-5 text-sm font-medium hover:bg-gray-50"
-            >
-              Cancel
-            </Link>
-
-            <button
-              type="submit"
-              disabled={!invoiceNumber || !issueDate || saving || saved}
-              className="min-h-12 rounded-lg bg-gray-950 px-6 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {saving
-                ? "Saving..."
-                : saved
-                  ? "Saved successfully"
-                  : invoiceId
-                    ? `Update ${documentLabel}`
-                    : `Save ${documentLabel}`}
-            </button>
+            <div className="flex shrink-0 gap-2">
+              <LinkButton href={form.isEditing ? `/invoices/${initialInvoice?.id}` : "/invoices"}>
+                Cancel
+              </LinkButton>
+              <Button type="submit" variant="primary" loading={form.saving}>
+                {form.saving ? "Saving" : form.isEditing ? "Save changes" : `Save ${label}`}
+              </Button>
+            </div>
           </div>
-        </form>
-      </div>
-    </main>
+        </div>
+
+        {/* ------------------------------------------------- Live preview */}
+        <aside
+          aria-label="Live preview"
+          className={cn(
+            "xl:sticky xl:top-20",
+            view === "edit" && "hidden xl:block",
+          )}
+        >
+          <p className="mb-2 hidden text-xs font-medium text-ink-muted xl:block">
+            Live preview
+          </p>
+          <InvoiceDocument data={documentData} totals={form.totals} draft />
+        </aside>
+      </form>
+    </>
   );
 }

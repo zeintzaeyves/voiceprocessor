@@ -1,6 +1,6 @@
 
 import type { Invoice } from "../types";
-import { calculateInvoiceTotals } from "./calculations";
+import { getInvoiceTotals } from "./calculations";
 import { getEffectiveInvoiceStatus } from "./status";
 
 export type CurrencyAnalytics = {
@@ -21,10 +21,7 @@ export function calculateInvoiceAnalytics(
 
   for (const invoice of invoices) {
     const status = getEffectiveInvoiceStatus(invoice, today);
-    const totals = calculateInvoiceTotals(
-      invoice.lineItems,
-      invoice.taxRatePercent,
-    );
+    const totals = getInvoiceTotals(invoice);
 
     const current = analytics.get(invoice.currency) ?? {
       currency: invoice.currency,

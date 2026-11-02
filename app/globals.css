@@ -1,26 +1,161 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * Design tokens. Neutral surfaces, near-black ink, one restrained accent.
+ * Components use these names (bg-canvas, text-ink-muted, border-line, …)
+ * and never raw hex values, so the whole product can be re-themed here.
+ */
+@theme {
+  /* Surfaces */
+  --color-canvas: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-sunken: #f1f1ee;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  /* Lines */
+  --color-line: #e8e7e3;
+  --color-line-strong: #d5d4cf;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  /* Ink */
+  --color-ink: #1b1b1d;
+  --color-ink-muted: #5f5f66;
+  --color-ink-faint: #8e8e95;
+
+  /* Accent (links, focus, primary actions that are not "ink") */
+  --color-accent: #0a6cdc;
+  --color-accent-hover: #0858b4;
+  --color-accent-soft: #eaf2fc;
+
+  /* Status */
+  --color-success: #17734a;
+  --color-success-soft: #e6f4ec;
+  --color-danger: #b8322a;
+  --color-danger-soft: #fceceb;
+  --color-warning: #8a5a00;
+  --color-warning-soft: #fdf3dc;
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Elevation: restrained; borders do most of the work */
+  --shadow-card: 0 1px 2px rgb(20 20 20 / 0.04);
+  --shadow-pop: 0 12px 40px rgb(20 20 20 / 0.14), 0 2px 6px rgb(20 20 20 / 0.06);
+
+  /* Type */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-page-in: page-in 220ms var(--ease-out);
+  --animate-toast-in: toast-in 220ms var(--ease-out);
+  --animate-fade-in: fade-in 160ms ease-out;
+
+  @keyframes page-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
   }
 }
 
+:root {
+  color-scheme: light;
+}
+
+html {
+  background: var(--color-canvas);
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* One consistent, visible keyboard focus style. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-accent-soft);
+}
+
+/* Native <dialog> entrance/exit */
+dialog {
+  color: inherit;
+}
+dialog::backdrop {
+  background: rgb(20 20 20 / 0.32);
+  backdrop-filter: blur(2px);
+}
+dialog[open] {
+  animation: var(--animate-toast-in);
+}
+dialog[open]::backdrop {
+  animation: var(--animate-fade-in);
+}
+
+/* Navigation drawer slides in from the left instead of scaling. */
+dialog.drawer[open] {
+  animation: drawer-in 240ms var(--ease-out);
+}
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Print: only the invoice document, on a white A4 page. */
+@page {
+  size: A4;
+  margin: 16mm;
+}
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+  [data-print-hide] {
+    display: none !important;
+  }
+  [data-print-reset] {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    max-width: none !important;
+    background: #fff !important;
+  }
+  tr {
+    break-inside: avoid;
+  }
 }
