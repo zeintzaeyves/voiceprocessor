@@ -21,7 +21,8 @@ Next.js 16 (App Router, Cache Components) · React 19 · TypeScript (strict) · 
 
 | Route                | Purpose                                                      |
 | -------------------- | ------------------------------------------------------------ |
-| `/`                  | Dashboard: totals, status, insights, recent activity         |
+| `/`                  | Landing page: what the product does, with a sample invoice  |
+| `/dashboard`         | Dashboard: totals, status, insights, recent activity         |
 | `/invoices`          | Search, filter (status, currency), sort, change status, delete |
 | `/invoices/new`      | Create an invoice or receipt with a live preview             |
 | `/invoices/[id]`     | The document: print / save as PDF, mark paid, edit, delete   |
@@ -33,8 +34,11 @@ Next.js 16 (App Router, Cache Components) · React 19 · TypeScript (strict) · 
 Feature-oriented. Invoice code lives in `features/invoices/`, shared UI in `components/`, routes in `app/` stay thin.
 
 ```
-app/                      Routes, layout, template (page transition), globals.css (design tokens)
+app/                      Root layout, template (page transition), globals.css (design tokens)
+  (marketing)/            Landing page at / (no app shell)
+  (app)/                  Dashboard, invoices, converter, all inside the app shell
 components/
+  landing/                Landing page and its sample invoice (static, no client JS of its own)
   shell/                  App shell: sidebar, mobile drawer, top bar, nav
   ui/                     Design system: Button, Field/Input/Select/Textarea, Card,
                           StatusBadge, ConfirmDialog, Toast, Skeleton, EmptyState, PageHeader

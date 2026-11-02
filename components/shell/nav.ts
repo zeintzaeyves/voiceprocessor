@@ -6,7 +6,7 @@ export type NavItem = {
 };
 
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "Dashboard", match: (p) => p === "/" },
+  { href: "/dashboard", label: "Dashboard", match: (p) => p === "/dashboard" },
   {
     href: "/invoices",
     label: "Invoices",
@@ -23,7 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
 
 /** A short name for where the user is, shown in the top bar. */
 export function getSectionLabel(pathname: string): string {
-  if (pathname === "/") return "Dashboard";
+  if (pathname === "/dashboard") return "Dashboard";
   if (pathname === "/invoices") return "Invoices";
   if (pathname === "/invoices/new") return "New document";
   if (pathname.endsWith("/edit")) return "Edit document";

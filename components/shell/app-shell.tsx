@@ -16,14 +16,14 @@ import {
 import { NAV_ITEMS, getSectionLabel } from "./nav";
 
 const ICONS: Record<string, ReactNode> = {
-  "/": <DashboardIcon />,
+  "/dashboard": <DashboardIcon />,
   "/invoices": <InvoicesIcon />,
   "/converter": <ConverterIcon />,
 };
 
 function Brand() {
   return (
-    <Link href="/" className="flex items-center gap-2.5 rounded-md">
+    <Link href="/dashboard" className="flex items-center gap-2.5 rounded-md">
       <span
         aria-hidden="true"
         className="flex size-8 items-center justify-center rounded-md bg-ink text-xs font-semibold tracking-tight text-white"
